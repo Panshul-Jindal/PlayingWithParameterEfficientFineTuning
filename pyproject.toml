@@ -1,0 +1,34 @@
+[project]
+name = "explora"
+version = "0.1.0"
+description = "ExPLoRA (parameter-efficient extended MAE pretraining) on BloodMNIST"
+readme = "README.md"
+authors = [
+    { name = "Panshul-Jindal", email = "panshuljindal.7@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "matplotlib>=3.11.2",
+    "medmnist>=3.0.2",
+    "scikit-learn>=1.9.1",
+    "torch>=2.15.0",
+    "torchvision>=0.29.2",
+    "tqdm>=4.70.1",
+    "transformers>=5.24.0",
+    "wandb>=0.31.2",
+]
+
+
+[build-system]
+requires = ["uv_build>=0.9.9,<0.10.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "ipykernel>=7.4.0",
+    "pytest>=9.2.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning", "ignore::FutureWarning"]

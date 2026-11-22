@@ -1,0 +1,12 @@
+# Python / uv
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Experiment outputs (big or regenerated)
+checkpoints/
+outputs/features_*.npz
+wandb/
+*.pt
