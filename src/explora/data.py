@@ -17,7 +17,7 @@ from typing import Callable
 import torch
 from medmnist import INFO, BloodMNIST
 from torch.utils.data import DataLoader, Dataset
-from torchvision import transforms
+from torchvision.transforms import v2
 
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
@@ -34,20 +34,42 @@ def build_transform(img_size: int = 224, augment: bool = False) -> Callable:
                    (keep at least half the area) plus horizontal and vertical flips
                    (a blood cell has no "up").
     """
-    raise NotImplementedError("Phase 1: build_transform")
-
+    test_transforms = v2.Compose([
+        v2.ToImage(),
+        v2.ToDtype(torch.float32,scale=True),
+        v2.Normalize(mean=IMAGENET_MEAN,std=IMAGENET_STD),
+        v2.Resize((img_size,img_size),interpolation="bilinear")
+    ])
+    
+    train_transforms = v2.Compose([
+        v2.ToImage(),
+        v2.ToDtype(torch.float32,scale=True),
+        v2.Normalize(mean=IMAGENET_MEAN,std=IMAGENET_STD),
+        v2.RandomResizedCrop((img_size,img_size),scale=(0.5,1),interpolation="bilinear"),
+        v2.RandomHorizontalFlip(),
+        v2.RandomVerticalFlip(),
+        
+    ])
+    if augment:
+        return train_transforms
+    else:
+        return test_transforms
 
 def label_to_int(y) -> int:
     """medmnist returns labels as numpy arrays of shape (1,). Turn them into a plain int.
     (A module-level function, not a lambda, so DataLoader workers can pickle it.)"""
-    raise NotImplementedError("Phase 1: label_to_int")
+    return int(y[0])
 
 
 def build_dataset(split: str, img_size: int = 224, augment: bool = False) -> Dataset:
     """BloodMNIST split ('train' | 'val' | 'test') at SOURCE_SIZE, with build_transform
     as the transform and label_to_int as the target_transform. Download if needed."""
-    raise NotImplementedError("Phase 1: build_dataset")
-
+    
+    dataset_spit = BloodMNIST(split = split,transform = build_transform(img_size=img_size,augment=augment),target_transform =label_to_int,
+                              download=True,as_rgb=True
+                              ,size=SOURCE_SIZE)
+    
+    return dataset_spit
 
 def build_loader(
     split: str,
@@ -61,4 +83,11 @@ def build_loader(
     for_training=False -> fixed order, keep every sample (feature extraction must see all N images,
                           in order, so features line up with labels).
     Pin memory when CUDA is available. Keep workers alive between epochs when num_workers > 0."""
-    raise NotImplementedError("Phase 1: build_loader")
+    
+    ds = build_dataset(split=split,img_size= img_size,augment=augment)
+    
+    return DataLoader(dataset=ds,batch_size=batch_size,shuffle=for_training,
+                      pin_memory = torch.cuda.is_available(),
+                      num_workers=num_workers,
+                      drop_last=for_training, 
+                      persistent_workers=num_workers>0)
