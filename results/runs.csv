@@ -1,0 +1,2 @@
+finished_at,script,tag,git_commit,git_dirty,wandb_run_id,wandb_url,metrics
+2026-11-24 01:22,run_probe,baseline,ce54ac0792dd89b325bfba9fa16a84eb0a93f80d,False,cy0nuktl,https://forge.coreweave.com/wandb/models-indian-institute-of-technology-hyderabad/explora-bloodmnist/runs/cy0nuktl,"{""cls_test_acc"": 0.9752, ""mean_test_acc"": 0.9728}"

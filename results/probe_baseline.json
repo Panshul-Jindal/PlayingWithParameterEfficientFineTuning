@@ -1,0 +1,18 @@
+{
+  "cls": {
+    "train_acc": 1.0,
+    "test_acc": 0.9751534638994446,
+    "test_macro_f1": 0.9747622191943777
+  },
+  "mean": {
+    "train_acc": 1.0,
+    "test_acc": 0.9728149663840983,
+    "test_macro_f1": 0.9734175358828677
+  },
+  "run": {
+    "git_commit": "ce54ac0792dd89b325bfba9fa16a84eb0a93f80d",
+    "git_dirty": false,
+    "wandb_run_id": "cy0nuktl",
+    "wandb_url": "https://forge.coreweave.com/wandb/models-indian-institute-of-technology-hyderabad/explora-bloodmnist/runs/cy0nuktl"
+  }
+}
