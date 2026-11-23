@@ -20,8 +20,9 @@ import numpy as np
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
-
-
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score,f1_score
 @torch.no_grad()
 def extract_features(
     encoder: nn.Module, loader: DataLoader, device: torch.device, use_amp: bool = True
@@ -39,7 +40,36 @@ def extract_features(
       * Use eval mode and restore the encoder's previous train/eval mode afterwards.
       * Use fp16 autocast only when use_amp is True AND the device is CUDA. Return float32 numpy.
     """
-    raise NotImplementedError("Phase 3: extract_features")
+    
+    old, was_training = encoder.config.mask_ratio, encoder.training
+    encoder.config.mask_ratio = 0.0; encoder.eval()
+    
+    enable_autocast = use_amp and device.type=='cuda'
+    cls_embs = []
+    mean_embs = []
+    targets = []
+    try:
+      for x,y in loader:
+          with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=enable_autocast):
+            x = x.to(device)
+            output  = encoder(x)
+            output_tokens  = output.last_hidden_state 
+            
+            cls_emb = output_tokens[:,0].float().cpu().numpy()
+            mean_emb = output_tokens[:,1:].float().mean(dim=1).cpu().numpy()
+            labels = y.numpy()
+            cls_embs.append(cls_emb)
+            mean_embs.append(mean_emb) 
+            targets.append(labels)
+    finally:
+            encoder.config.mask_ratio = old; encoder.train(was_training)
+    
+    cls_embs = np.concatenate(cls_embs,axis = 0)
+    mean_embs = np.concatenate(mean_embs,axis =0)
+    targets = np.concatenate(targets,axis = 0 )
+    
+    return ({"cls":cls_embs,"mean":mean_embs},targets)
+
 
 
 def fit_linear_probe(
@@ -55,4 +85,25 @@ def fit_linear_probe(
     Returns a dict with at least:
       "train_acc": float, "test_acc": float, "test_macro_f1": float, "test_pred": np.ndarray (N_test,)
     """
-    raise NotImplementedError("Phase 3: fit_linear_probe")
+    
+    ## Standardize the train dataset
+    
+    scaler = StandardScaler()
+    scaler.fit(train_x)
+    train_x= scaler.transform(train_x)
+    
+    test_x = scaler.transform(test_x)
+    
+    clf = LogisticRegression(random_state=0,C=C,max_iter=max_iter).fit(train_x,train_y)
+    train_predictions = clf.predict(train_x)
+    
+
+    train_accuracy = accuracy_score(train_predictions,train_y)
+    test_predictions = clf.predict(test_x)
+    test_accuracy = accuracy_score(test_predictions,test_y)
+    test_macro_f1_score = f1_score(test_predictions,test_y,average='macro')
+    
+    
+    
+    return {"train_acc":train_accuracy,"test_acc":test_accuracy,"test_macro_f1":test_macro_f1_score ,
+            "test_pred":test_predictions}

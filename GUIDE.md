@@ -71,6 +71,13 @@ git add -A && git commit -m "Scaffold: uv project, tests, training/probe scripts
 
 **Decide before you code:** the model was pretrained at 224×224 with 16×16 patches. You have 64×64 images. What breaks if you feed 64×64 directly? (Count the patches, then count how many survive 75% masking.) Why upsample to 224?
 
+Conv2d(3, 768, kernel_size=(16, 16), stride=(16, 16))  It has a fixed convolution layer for making the patches of  16* 16 
+Though ijt has used fixed positional embeddings of sin and cosine.. so they aren't a problem. And thus if we would have been in the domain of tokens, then we could have given any input of any length. ( main thing which i understand is that positional embeddings are directly interpelotable)
+
+
+With 64 * 64, we get just 16 patches. only 4 will survive non masking. 
+Is it to less? 
+
 <details><summary>Hint 1: what goes in the transform</summary>
 
 Eval: resize to (img_size, img_size) → to tensor in [0, 1] → normalise with ImageNet mean/std. Train (augment=True): replace the resize with a random resized crop (scale (0.5, 1)) and add horizontal + vertical flips.
@@ -107,8 +114,11 @@ import inspect, transformers.models.vit_mae.modeling_vit_mae as src; print(src._
 ```
 
 1. Exact module names of the **query** and **value** projections in encoder block 1 and decoder block 1. (`named_modules()`)
+decoder.decoder_layers.1.attention.q_proj,  decoder.decoder_layers.1.attention.v_proj
+
 2. Parameter count: total, encoder (`m.vit`), decoder. What % of the encoder is **one** block?
 3. `out = m(pixel_values=torch.randn(2,3,224,224))`. Shapes of `out.logits`, `out.mask`, `out.ids_restore`. **Why is the last dim of logits 768?** (Careful: it's not the hidden size.)
+each row = one patch's 16 × 16 × 3 pixel values
 4. Find the loss in the source. Is it averaged over all patches or only masked ones? What's `norm_pix_loss` for this checkpoint?
 5. `m.vit(pixel_values=x).last_hidden_state.shape` is `(2, 50, 768)`. Why 50?
 6. Find `random_masking`. How would you turn masking **off**? What is the `noise` argument for?
