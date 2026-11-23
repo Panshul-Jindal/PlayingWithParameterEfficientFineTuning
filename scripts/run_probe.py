@@ -20,7 +20,7 @@ from explora.data import CLASS_NAMES, build_loader
 from explora.explora import configure_explora
 from explora.lora import LoRALinear, merge_lora
 from explora.probe import extract_features, fit_linear_probe
-from explora.utils import get_device, init_wandb, load_trainable_weights, seed_everything
+from explora.utils import get_device, init_wandb, load_trainable_weights, record_run, seed_everything
 
 MODEL_ID = "facebook/vit-mae-base"
 
@@ -95,6 +95,8 @@ def main() -> None:
             y_true=y_te.tolist(), preds=res["test_pred"].tolist(), class_names=CLASS_NAMES)})
 
     Path("results").mkdir(exist_ok=True)
+    results["run"] = record_run("run_probe", args.tag, run, {f"{p}_test_acc": round(results[p]["test_acc"], 4)
+                                                             for p in ("cls", "mean")})
     Path(f"results/probe_{args.tag}.json").write_text(json.dumps(results, indent=2))
 
     # Side-by-side table once both runs exist (also logged to wandb)

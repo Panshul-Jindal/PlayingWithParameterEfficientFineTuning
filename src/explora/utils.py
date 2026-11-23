@@ -94,22 +94,67 @@ def cosine_with_warmup(
 
 
 # ---------------------------------------------------------------------------
-# wandb
+# wandb + provenance: every result must point back to a commit and a W&B run
 # ---------------------------------------------------------------------------
+
+
+def git_provenance() -> dict[str, Any]:
+    """The commit this code runs from, and whether tracked files have uncommitted changes."""
+    import subprocess
+
+    def git(*args: str) -> str:
+        return subprocess.run(["git", *args], capture_output=True, text=True, check=True).stdout.strip()
+
+    try:
+        return {"git_commit": git("rev-parse", "HEAD"), "git_dirty": bool(git("status", "--porcelain", "--untracked-files=no"))}
+    except (OSError, subprocess.CalledProcessError):
+        return {"git_commit": None, "git_dirty": None}
 
 
 def init_wandb(project: str, job_type: str, config: dict, mode: str = "online", name: str | None = None,
                tags: list[str] | None = None, resume_id: str | None = None):
-    """mode: 'online' (default), 'offline' (sync later with `wandb sync`), or 'disabled'."""
+    """mode: 'online' (default), 'offline' (sync later with `wandb sync`), or 'disabled'.
+
+    Also stores the git commit in the run's config, and tags the run "dirty" if tracked files
+    had uncommitted changes, because such a run can't be reproduced from any commit."""
     import wandb
 
-    return wandb.init(
+    prov = git_provenance()
+    run = wandb.init(
         project=project,
         job_type=job_type,
         config=config,
         mode=mode,
         name=name,
-        tags=tags,
+        tags=(tags or []) + (["dirty"] if prov["git_dirty"] else []),
         id=resume_id,
         resume="allow" if resume_id else None,
     )
+    run.config.update(prov, allow_val_change=True)
+    print(f"W&B run {run.id} · commit {(prov['git_commit'] or 'none')[:7]}"
+          + (" + UNCOMMITTED CHANGES" if prov["git_dirty"] else " (clean)"))
+    if prov["git_dirty"]:
+        print("  !! This run can't be reproduced from a commit. For a result you report: commit first, then re-run.")
+    return run
+
+
+def record_run(script: str, tag: str, run, metrics: dict[str, Any]) -> dict[str, Any]:
+    """Append one row to results/runs.csv (when, what, which commit, which W&B run, headline numbers)
+    and return the same provenance, to store next to the result."""
+    import csv
+    import json
+    from datetime import datetime
+
+    prov = {"git_commit": run.config.get("git_commit"), "git_dirty": run.config.get("git_dirty"),
+            "wandb_run_id": run.id, "wandb_url": getattr(run, "url", None) or ""}
+    path = Path("results/runs.csv")
+    path.parent.mkdir(exist_ok=True)
+    new = not path.exists()
+    with path.open("a", newline="") as f:
+        w = csv.writer(f)
+        if new:
+            w.writerow(["finished_at", "script", "tag", "git_commit", "git_dirty", "wandb_run_id", "wandb_url", "metrics"])
+        w.writerow([f"{datetime.now():%Y-%m-%d %H:%M}", script, tag, prov["git_commit"], prov["git_dirty"],
+                    prov["wandb_run_id"], prov["wandb_url"], json.dumps(metrics)])
+    print(f"Recorded in results/runs.csv: commit {(prov['git_commit'] or 'none')[:7]} · W&B {prov['wandb_url'] or prov['wandb_run_id']}")
+    return prov

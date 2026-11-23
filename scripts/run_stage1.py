@@ -20,8 +20,8 @@ from transformers import ViTMAEForPreTraining
 from explora.data import CLASS_NAMES, build_dataset, build_loader
 from explora.explora import configure_explora
 from explora.train import build_optimizer, train_one_epoch
-from explora.utils import (cosine_with_warmup, get_device, init_wandb, load_trainable_weights, save_checkpoint,
-                           seed_everything, trainable_state_dict)
+from explora.utils import (cosine_with_warmup, get_device, init_wandb, load_trainable_weights, record_run,
+                           save_checkpoint, seed_everything, trainable_state_dict)
 from explora.viz import fixed_noise, loss_curve_figure, masked_loss, recon_figure
 
 MODEL_ID = "facebook/vit-mae-base"
@@ -158,6 +158,7 @@ def main() -> None:
             print(f"\nOne epoch = {dt:.0f}s ({steps_per_epoch} steps of {args.batch_size}). "
                   f"Projected: 10 epochs = {10 * dt / 60:.0f} min, 20 epochs = {20 * dt / 60:.0f} min.")
             run.summary.update({"time/epoch_s": dt})
+            record_run("run_stage1", "time-only", run, {"epoch_s": round(dt, 1), "steps": steps_per_epoch})
             wandb.finish()
             return
 
@@ -172,11 +173,14 @@ def main() -> None:
     curve = loss_curve_figure(history["steps"], history["losses"], history["epoch_losses"], steps_per_epoch)
     curve.savefig(fig_dir / "stage1_loss.png", dpi=120)
     wandb.log({"recon/after": wandb.Image(fig), "recon/after_loss": after_loss, "loss_curve": wandb.Image(curve)})
+    prov = record_run("run_stage1", run.name or "stage1", run,
+                      {"epochs": len(history["epoch_losses"]), "final_epoch_loss": round(history["epoch_losses"][-1], 4),
+                       "fixed_test_loss_after": round(float(after_loss), 4)})
     save_checkpoint(out_dir / "final.pt", trainable=trainable_state_dict(model), explora_cfg=explora_cfg,
-                    args=vars(args), history=history)
+                    args=vars(args), history=history, run=prov)
     (fig_dir / "stage1_summary.json").write_text(json.dumps(
         {"params": {k: summary[k] for k in ("trainable", "total", "trainable_pct")},
-         "epoch_losses": history["epoch_losses"], "epoch_times": history["epoch_times"]}, indent=2))
+         "epoch_losses": history["epoch_losses"], "epoch_times": history["epoch_times"], "run": prov}, indent=2))
     print(f"Done. Final checkpoint: {out_dir / 'final.pt'}")
     wandb.finish()
 
