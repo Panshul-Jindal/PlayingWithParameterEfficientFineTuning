@@ -22,7 +22,7 @@ from explora.explora import configure_explora
 from explora.train import build_optimizer, train_one_epoch
 from explora.utils import (cosine_with_warmup, get_device, init_wandb, load_trainable_weights, record_run,
                            save_checkpoint, seed_everything, trainable_state_dict)
-from explora.viz import fixed_noise, loss_curve_figure, masked_loss, recon_figure
+from explora.viz import fixed_noise, loss_curve_figure, masked_loss, masked_loss_batched, recon_figure
 
 MODEL_ID = "facebook/vit-mae-base"
 
@@ -65,6 +65,13 @@ def recon_samples(img_size: int) -> tuple[torch.Tensor, list[str]]:
     return torch.stack([picked[y] for y in ys]), [CLASS_NAMES[y] for y in ys]
 
 
+def val_monitor_images(img_size: int, n: int = 256) -> torch.Tensor:
+    """The first n VAL images. Stage 1 tracks its loss on these (with a fixed mask) after every epoch,
+    so any decision about training length is made on val, never on test."""
+    ds = build_dataset("val", img_size=img_size, augment=False)
+    return torch.stack([ds[i][0] for i in range(min(n, len(ds)))])
+
+
 def main() -> None:
     args = parse_args()
     seed_everything(args.seed)
@@ -95,13 +102,20 @@ def main() -> None:
 
     # ---- model + "before" reconstructions (pure pretrained weights) -----------------------
     model = ViTMAEForPreTraining.from_pretrained(MODEL_ID).to(device)
-    images, labels = recon_samples(args.img_size)
-    noise = fixed_noise(len(images), (args.img_size // model.config.patch_size) ** 2, seed=args.seed)
+    num_patches = (args.img_size // model.config.patch_size) ** 2
+    images, labels = recon_samples(args.img_size)  # 8 TEST images: pictures only (the assignment asks for them)
+    noise = fixed_noise(len(images), num_patches, seed=args.seed)
+    val_images = val_monitor_images(args.img_size)  # 256 VAL images: the number we track during training
+    val_noise = fixed_noise(len(val_images), num_patches, seed=args.seed + 1)
+    val_before = None
     if resume_ckpt is None:
         before_loss = masked_loss(model, images, noise)
         fig = recon_figure(model, images, noise, "Before Stage 1 (pretrained ViT-MAE)", labels, before_loss)
         fig.savefig(fig_dir / "recon_before.png", dpi=120)
-        wandb.log({"recon/before": wandb.Image(fig), "recon/before_loss": before_loss})
+        val_before = masked_loss_batched(model, val_images, val_noise)
+        print(f"before Stage 1: val loss {val_before:.4f}")
+        wandb.log({"recon/before": wandb.Image(fig), "recon/before_loss": before_loss,
+                   "epoch": 0, "epoch/val_loss": val_before})
 
     # ---- ExPLoRA: choose what trains (YOUR configure_explora) --------------------------------
     summary = configure_explora(model, **explora_cfg)
@@ -119,7 +133,8 @@ def main() -> None:
     scheduler = cosine_with_warmup(optimizer, int(args.warmup_epochs * steps_per_epoch), epochs * steps_per_epoch)
     scaler = torch.amp.GradScaler(device.type, enabled=use_amp)
 
-    start_epoch, history = 0, {"steps": [], "losses": [], "epoch_losses": [], "epoch_times": []}
+    start_epoch = 0
+    history = {"steps": [], "losses": [], "epoch_losses": [], "epoch_times": [], "val_losses": [val_before]}
     if resume_ckpt is not None:
         load_trainable_weights(model, resume_ckpt["trainable"])
         optimizer.load_state_dict(resume_ckpt["optimizer"])
@@ -147,18 +162,20 @@ def main() -> None:
         history["epoch_losses"].append(mean_loss)
         history["epoch_times"].append(dt)
         peak_gb = torch.cuda.max_memory_allocated() / 1e9 if device.type == "cuda" else 0.0
-        val_loss = masked_loss(model, images, noise)
-        print(f"epoch {epoch + 1}/{epochs}  loss {mean_loss:.4f}  fixed-test loss {val_loss:.4f}  "
+        val_loss = masked_loss_batched(model, val_images, val_noise)
+        history.setdefault("val_losses", []).append(val_loss)
+        print(f"epoch {epoch + 1}/{epochs}  train loss {mean_loss:.4f}  val loss {val_loss:.4f}  "
               f"{dt:.0f}s  peak {peak_gb:.2f} GB")
-        wandb.log({"epoch": epoch + 1, "epoch/loss": mean_loss, "epoch/time_s": dt, "epoch/peak_mem_gb": peak_gb,
-                   "epoch/fixed_test_loss": val_loss,
-                   "epoch/recon": wandb.Image(recon_figure(model, images, noise, f"Epoch {epoch + 1}", labels, val_loss))})
+        wandb.log({"epoch": epoch + 1, "epoch/loss": mean_loss, "epoch/val_loss": val_loss, "epoch/time_s": dt,
+                   "epoch/peak_mem_gb": peak_gb,
+                   "epoch/recon": wandb.Image(recon_figure(model, images, noise, f"Epoch {epoch + 1}", labels))})
 
         if args.time_only:
             print(f"\nOne epoch = {dt:.0f}s ({steps_per_epoch} steps of {args.batch_size}). "
                   f"Projected: 10 epochs = {10 * dt / 60:.0f} min, 20 epochs = {20 * dt / 60:.0f} min.")
             run.summary.update({"time/epoch_s": dt})
-            record_run("run_stage1", "time-only", run, {"epoch_s": round(dt, 1), "steps": steps_per_epoch})
+            record_run("run_stage1", "time-only", run, {"epoch_s": round(dt, 1), "steps": steps_per_epoch,
+                                                        "val_loss": round(val_loss, 4)})
             wandb.finish()
             return
 
@@ -170,17 +187,20 @@ def main() -> None:
     after_loss = masked_loss(model, images, noise)
     fig = recon_figure(model, images, noise, "After Stage 1 (ExPLoRA)", labels, after_loss)
     fig.savefig(fig_dir / "recon_after.png", dpi=120)
-    curve = loss_curve_figure(history["steps"], history["losses"], history["epoch_losses"], steps_per_epoch)
+    curve = loss_curve_figure(history["steps"], history["losses"], history["epoch_losses"], steps_per_epoch,
+                              val_losses=history.get("val_losses"))
     curve.savefig(fig_dir / "stage1_loss.png", dpi=120)
     wandb.log({"recon/after": wandb.Image(fig), "recon/after_loss": after_loss, "loss_curve": wandb.Image(curve)})
+    val_losses = history.get("val_losses") or [None]
     prov = record_run("run_stage1", run.name or "stage1", run,
                       {"epochs": len(history["epoch_losses"]), "final_epoch_loss": round(history["epoch_losses"][-1], 4),
-                       "fixed_test_loss_after": round(float(after_loss), 4)})
+                       "val_loss_before": val_losses[0], "val_loss_after": val_losses[-1]})
     save_checkpoint(out_dir / "final.pt", trainable=trainable_state_dict(model), explora_cfg=explora_cfg,
                     args=vars(args), history=history, run=prov)
     (fig_dir / "stage1_summary.json").write_text(json.dumps(
         {"params": {k: summary[k] for k in ("trainable", "total", "trainable_pct")},
-         "epoch_losses": history["epoch_losses"], "epoch_times": history["epoch_times"], "run": prov}, indent=2))
+         "epoch_losses": history["epoch_losses"], "val_losses": history.get("val_losses"),
+         "epoch_times": history["epoch_times"], "run": prov}, indent=2))
     print(f"Done. Final checkpoint: {out_dir / 'final.pt'}")
     wandb.finish()
 

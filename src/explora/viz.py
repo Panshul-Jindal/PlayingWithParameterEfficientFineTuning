@@ -89,10 +89,26 @@ def masked_loss(model: nn.Module, images: torch.Tensor, noise: torch.Tensor) -> 
     return loss
 
 
-def loss_curve_figure(steps: list[int], losses: list[float], epoch_losses: list[float], steps_per_epoch: int):
+def masked_loss_batched(model: nn.Module, images: torch.Tensor, noise: torch.Tensor, batch_size: int = 64) -> float:
+    """masked_loss over many images, in chunks. Every image masks the same number of patches,
+    so weighting each chunk by its size gives the exact mean over all images."""
+    total, n = 0.0, 0
+    for i in range(0, len(images), batch_size):
+        k = len(images[i:i + batch_size])
+        total += masked_loss(model, images[i:i + batch_size], noise[i:i + batch_size]) * k
+        n += k
+    return total / n
+
+
+def loss_curve_figure(steps: list[int], losses: list[float], epoch_losses: list[float], steps_per_epoch: int,
+                      val_losses: list[float] | None = None):
+    """val_losses[0] is measured before training (step 0), then one value after each epoch."""
     fig, ax = plt.subplots(figsize=(7, 4))
     ax.plot(steps, losses, alpha=0.35, label="train loss (logged steps)")
-    ax.plot([(i + 1) * steps_per_epoch for i in range(len(epoch_losses))], epoch_losses, "o-", label="epoch mean")
+    ax.plot([(i + 1) * steps_per_epoch for i in range(len(epoch_losses))], epoch_losses, "o-", label="train, epoch mean")
+    if val_losses:
+        ax.plot([i * steps_per_epoch for i in range(len(val_losses))], val_losses, "s--",
+                label="val (256 fixed images, fixed mask)")
     ax.set_xlabel("optimizer step")
     ax.set_ylabel("MAE loss (MSE on masked patches)")
     ax.set_title("ExPLoRA Stage 1 reconstruction loss")

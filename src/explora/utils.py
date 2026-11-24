@@ -131,8 +131,8 @@ def init_wandb(project: str, job_type: str, config: dict, mode: str = "online", 
         resume="allow" if resume_id else None,
     )
     run.config.update(prov, allow_val_change=True)
-    print(f"W&B run {run.id} · commit {(prov['git_commit'] or 'none')[:7]}"
-          + (" + UNCOMMITTED CHANGES" if prov["git_dirty"] else " (clean)"))
+    state = "not a git repo" if prov["git_commit"] is None else ("UNCOMMITTED CHANGES" if prov["git_dirty"] else "clean")
+    print(f"W&B run {run.id} · commit {(prov['git_commit'] or 'none')[:7]} ({state})")
     if prov["git_dirty"]:
         print("  !! This run can't be reproduced from a commit. For a result you report: commit first, then re-run.")
     return run
