@@ -21,7 +21,7 @@ from typing import Iterable
 
 import torch
 from torch import nn
-
+import math
 
 class LoRALinear(nn.Module):
     """Wraps an existing nn.Linear and adds a trainable low-rank update.
@@ -37,18 +37,42 @@ class LoRALinear(nn.Module):
 
     def __init__(self, base: nn.Linear, r: int = 8, alpha: float = 16.0, dropout: float = 0.0):
         super().__init__()
-        raise NotImplementedError("Phase 4: LoRALinear.__init__")
+        self.base = base
+        for p in self.base.parameters():
+            p.requires_grad_(False)
+        self.dropout = nn.Dropout(dropout) if dropout > 0 else nn.Identity()
+        self.scaling = alpha/r
+
+        self.r = r
+        self.alpha = alpha
+        dev, dt = base.weight.device, base.weight.dtype
+        self.lora_A = nn.Parameter(torch.empty(r, base.in_features, device=dev, dtype=dt))
+        nn.init.kaiming_uniform_(self.lora_A,a = math.sqrt(5))
+        self.lora_B = nn.Parameter(torch.zeros(base.out_features, r, device=dev, dtype=dt))
+        
+
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        raise NotImplementedError("Phase 4: LoRALinear.forward")
+        return self.base(x) + self.scaling* self.dropout(x) @  self.lora_A.T @ self.lora_B.T
 
     @torch.no_grad()
     def merged_linear(self) -> nn.Linear:
         """Return a NEW nn.Linear with weight W0 + scaling * B @ A and the same bias.
         Do the maths in float32, then cast back to base.weight's dtype."""
-        raise NotImplementedError("Phase 6: LoRALinear.merged_linear")
+        
+        dev, dt = self.base.weight.device, self.base.weight.dtype
+        if self.base.bias is not None:
+            merged_layer = nn.Linear(self.base.in_features,self.base.out_features,device=dev,dtype=dt)
+            merged_layer.bias.copy_(self.base.bias)
+        else:
+            merged_layer = nn.Linear(self.base.in_features,self.base.out_features,bias=False)
+        ## copy_ automatically casts back to same dtype 
+        merged_layer.weight.copy_(self.base.weight.float() +  self.lora_B.float() @ self.lora_A.float() * self.scaling)
+            
 
-
+        
+        return merged_layer
+    
 def set_submodule(model: nn.Module, name: str, new_module: nn.Module) -> None:
     """Replace the submodule at dotted path `name` (e.g. 'vit.layers.3.attention.q_proj')."""
     parent_name, _, child_name = name.rpartition(".")
@@ -61,11 +85,35 @@ def inject_lora(
 ) -> list[str]:
     """Wrap each named nn.Linear in a LoRALinear, in place. Return the list of wrapped names.
     Raise TypeError if a target is not an nn.Linear (that includes an already-wrapped one)."""
-    raise NotImplementedError("Phase 4: inject_lora")
-
+    
+    target_names = list(target_names)
+    wrapped_names = []
+    for name in target_names:
+        mod = model.get_submodule(name)
+        if isinstance(mod,nn.Linear):
+            lora_linear = LoRALinear(mod,r=r,alpha=alpha,dropout=dropout)
+            set_submodule(model,name,lora_linear)
+            wrapped_names.append(name)
+            
+        else:
+            raise TypeError(f'Target Name {name} and corresponding Module {type(mod).__name__} is not of type Linear')
+            
+    return wrapped_names
 
 def merge_lora(model: nn.Module) -> int:
     """Replace every LoRALinear in `model` with its merged nn.Linear, in place.
     Return how many were merged. Afterwards the model has exactly the original
     architecture (same state_dict keys as a fresh from_pretrained model)."""
-    raise NotImplementedError("Phase 6: merge_lora")
+    count =0 
+    to_be_replaced_module = {}
+    for name,mod in model.named_modules():
+        if isinstance(mod,LoRALinear):
+            
+            merged_layer = mod.merged_linear()
+            to_be_replaced_module[name] = merged_layer
+            count +=1
+            
+    for module_name, merged_module in to_be_replaced_module.items():
+        set_submodule(model,module_name,merged_module)
+    return count 
+    
