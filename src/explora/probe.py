@@ -50,8 +50,8 @@ def extract_features(
     targets = []
     try:
       for x,y in loader:
+          x = x.to(device)
           with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=enable_autocast):
-            x = x.to(device)
             output  = encoder(x)
             output_tokens  = output.last_hidden_state 
             

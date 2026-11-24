@@ -30,8 +30,27 @@ def build_optimizer(
       * weight decay on matrices (p.ndim >= 2: Linear weights, lora_A, lora_B)
       * NO weight decay on vectors (p.ndim < 2: biases, LayerNorm weights and biases)
     (Decaying LayerNorm gains toward 0 shrinks activations. That's a common bug.)"""
-    raise NotImplementedError("Phase 5: build_optimizer")
+    decay, no_decay = [], []
+    for name, p in model.named_parameters():
+        if not p.requires_grad:          # frozen: leave it out entirely
+            continue
+        if p.ndim <2 :             # e.g. a test on p.ndim, or on the name
+            no_decay.append(p)
+        else:
+            decay.append(p)
+    
+    
+    opt = torch.optim.AdamW(
+        [
+            {"params":decay,"weight_decay":weight_decay},
+            {"params":no_decay,"weight_decay":0.0}
+            
+        ],
+        betas = betas,
+        lr =lr
+    )
 
+    return opt 
 
 def train_one_epoch(
     model: nn.Module,
@@ -56,4 +75,31 @@ def train_one_epoch(
       log_fn({"train/loss": float, "train/lr": float}, step) with step = index within this epoch.
     * Stop early after `max_steps` steps if given (for quick timing and debugging).
     """
-    raise NotImplementedError("Phase 5: train_one_epoch")
+    
+    model.train()
+    losses = []
+    for step,(x,_) in enumerate(loader):
+        if max_steps is not None and step >= max_steps:
+            break
+        optimizer.zero_grad()
+        x = x.to(device,non_blocking=True)
+        with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=use_amp):
+            output = model(x)
+            loss = output.loss              # forward in fp16 where it's safe
+        loss_value = loss.item()
+        losses.append(loss_value)
+            
+        scaler.scale(loss).backward()              # scale up so small fp16 grads don't underflow to 0
+        scaler.unscale_(optimizer)                 # back to true grads, needed before clipping
+        if max_grad_norm is not None:
+            torch.nn.utils.clip_grad_norm_([p for p in model.parameters() if p.requires_grad], max_grad_norm)
+        scaler.step(optimizer)                     # skips the step if grads overflowed (inf/nan)
+        scaler.update()                            # adjust the scale factor
+        
+        if log_fn is not None and  step %log_every ==0:
+            log_fn({"train/loss": loss_value, "train/lr": optimizer.param_groups[0]["lr"]}, step) 
+                     
+        if scheduler is not None: scheduler.step()
+            
+    
+    return sum(losses)/len(losses)
