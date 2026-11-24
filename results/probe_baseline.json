@@ -1,18 +1,44 @@
 {
   "cls": {
-    "train_acc": 1.0,
-    "test_acc": 0.9751534638994446,
-    "test_macro_f1": 0.9747622191943777
+    "C": 0.03,
+    "val_acc": 0.9783878504672897,
+    "train_acc": 0.9942302868132787,
+    "test_acc": 0.977491961414791,
+    "test_macro_f1": 0.9778754474278037,
+    "test_acc_C1": 0.975445776088863,
+    "test_macro_f1_C1": 0.9750863731257156,
+    "val_curve": {
+      "0.001": 0.9672897196261683,
+      "0.003": 0.9742990654205608,
+      "0.01": 0.9760514018691588,
+      "0.03": 0.9783878504672897,
+      "0.1": 0.9772196261682243,
+      "0.3": 0.9760514018691588,
+      "1": 0.9731308411214953
+    }
   },
   "mean": {
-    "train_acc": 1.0,
-    "test_acc": 0.9728149663840983,
-    "test_macro_f1": 0.9734175358828677
+    "C": 0.03,
+    "val_acc": 0.977803738317757,
+    "train_acc": 0.99481562003512,
+    "test_acc": 0.977491961414791,
+    "test_macro_f1": 0.9776831226216367,
+    "test_acc_C1": 0.9728149663840983,
+    "test_macro_f1_C1": 0.9731409019516006,
+    "val_curve": {
+      "0.001": 0.9661214953271028,
+      "0.003": 0.9713785046728972,
+      "0.01": 0.9760514018691588,
+      "0.03": 0.977803738317757,
+      "0.1": 0.9772196261682243,
+      "0.3": 0.977803738317757,
+      "1": 0.9760514018691588
+    }
   },
   "run": {
-    "git_commit": "ce54ac0792dd89b325bfba9fa16a84eb0a93f80d",
+    "git_commit": "a6a81f2b6282728124d1e1082f73f917f1a6056a",
     "git_dirty": false,
-    "wandb_run_id": "cy0nuktl",
-    "wandb_url": "https://forge.coreweave.com/wandb/models-indian-institute-of-technology-hyderabad/explora-bloodmnist/runs/cy0nuktl"
+    "wandb_run_id": "k6ce3clr",
+    "wandb_url": "https://forge.coreweave.com/wandb/models-indian-institute-of-technology-hyderabad/explora-bloodmnist/runs/k6ce3clr"
   }
 }
