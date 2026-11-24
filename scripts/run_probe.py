@@ -16,6 +16,7 @@ After Stage 1, merge LoRA into the encoder and probe it the same way:
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import math
 import os
@@ -119,6 +120,8 @@ def main() -> None:
     curves = {p: {c: out[i * len(grid) + j]["test_acc"] for j, c in enumerate(grid)} for i, p in enumerate(POOLS)}
     refs = {p: out[len(POOLS) * len(grid) + i] for i, p in enumerate(POOLS)}
     best = {p: max(grid, key=lambda c: (curves[p][c], -c)) for p in POOLS}  # best val accuracy; ties -> smaller C
+    val_pred = {p: out[i * len(grid) + grid.index(best[p])]["test_pred"] for i, p in enumerate(POOLS)}
+    test_pred = {}
     # 2) evaluate on TEST once per pooling, at its chosen C
     finals = fit_many([(xtr[p], ytr, feats["test"][p], yte, best[p]) for p in POOLS if best[p] != 1.0])
     finals = iter(finals)
@@ -126,6 +129,7 @@ def main() -> None:
     for pool in POOLS:
         best_c, ref = best[pool], refs[pool]
         res = ref if best_c == 1.0 else next(finals)
+        test_pred[pool] = res["test_pred"]
         print(f"[{args.tag}] {pool:>4} val acc by C: "
               + "  ".join(f"{c:g}:{curves[pool][c]:.4f}" for c in grid) + f"  -> C = {best_c:g}")
         results[pool] = {"C": best_c, "val_acc": curves[pool][best_c], "train_acc": res["train_acc"],
@@ -142,7 +146,25 @@ def main() -> None:
         xs=[math.log10(c) for c in grid], ys=[[curves[p][c] for c in grid] for p in POOLS], keys=list(POOLS),
         title="Probe: val accuracy vs log10(C)", xname="log10(C)")})
 
+    # Per-image predictions at each pooling's chosen C, for paired error analysis (baseline vs ExPLoRA).
+    # `index` is the image's position in its split: the probe loaders never shuffle, so
+    # build_dataset(split)[index] is this exact image.
     Path("results").mkdir(exist_ok=True)
+    rows = []
+    for split, y, preds in (("val", yva, val_pred), ("test", yte, test_pred)):
+        for i, label in enumerate(y.tolist()):
+            row = {"split": split, "index": i, "label": label, "label_name": CLASS_NAMES[label]}
+            for p in POOLS:
+                row[f"pred_{p}"] = int(preds[p][i])
+                row[f"correct_{p}"] = int(preds[p][i] == label)
+            rows.append(row)
+    preds_file = Path(f"results/preds_{args.tag}.csv")
+    with preds_file.open("w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=list(rows[0]))
+        w.writeheader()
+        w.writerows(rows)
+    print(f"Per-image predictions ({len(rows)} rows) saved to {preds_file}")
+    results["preds_file"] = str(preds_file)
     results["run"] = record_run("run_probe", args.tag, run, {f"{p}_{k}": round(results[p][k], 4)
                                                              for p in POOLS for k in ("C", "val_acc", "test_acc")})
     Path(f"results/probe_{args.tag}.json").write_text(json.dumps(results, indent=2))
