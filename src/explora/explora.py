@@ -48,4 +48,51 @@ def configure_explora(
       "trainable": int, "total": int, "trainable_pct": float (0-100),
       "lora_modules": list[str], "unfrozen_blocks": list[int]
     """
-    raise NotImplementedError("Phase 5: configure_explora")
+    ## Freeze Everything
+    model.requires_grad_(False)
+    
+    num_encoder_blocks = model.config.num_hidden_layers
+    num_decoder_blocks = model.config.decoder_num_hidden_layers
+    
+    ## Unfreeze encoder blocks
+    if unfrozen_blocks is None:
+        last_block_idx= num_encoder_blocks-1
+        unfrozen_blocks=[last_block_idx]
+        model.vit.layers[last_block_idx].requires_grad_(True)
+    else:
+      for block_idx in unfrozen_blocks:
+        model.vit.layers[block_idx].requires_grad_(True)
+        
+    target_names =[]
+    
+    ## Lora targets for non frozen blocks of encoder
+    for block_idx in range(num_encoder_blocks):
+      if block_idx not in unfrozen_blocks:
+          for t in lora_targets:
+              target_names.append(f"vit.layers.{block_idx}.attention.{t}")
+
+                
+    
+    ## For decoder 
+    if lora_decoder:
+      for block_idx in range(num_decoder_blocks):
+          for t in lora_targets:
+              target_names.append(f"decoder.decoder_layers.{block_idx}.attention.{t}")
+    
+    lora_modules = inject_lora(model,target_names,r=r,alpha=alpha,dropout=dropout)
+
+
+    if train_layernorms:
+      for mod in model.modules():
+          if isinstance(mod,nn.LayerNorm):
+              mod.requires_grad_(True)
+
+    trainable_parameters,total_parameters = count_parameters(model)
+
+    return {
+      "trainable":trainable_parameters,
+      "total":total_parameters,
+      "trainable_pct":(trainable_parameters/total_parameters)*100,
+      "lora_modules":lora_modules,
+      "unfrozen_blocks":unfrozen_blocks
+    }
