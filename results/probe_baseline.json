@@ -35,10 +35,11 @@
       "1": 0.9760514018691588
     }
   },
+  "preds_file": "results/preds_baseline.csv",
   "run": {
-    "git_commit": "a6a81f2b6282728124d1e1082f73f917f1a6056a",
+    "git_commit": "b4dea933e9778ee68f591c0c458c09a7bf79282a",
     "git_dirty": false,
-    "wandb_run_id": "k6ce3clr",
-    "wandb_url": "https://forge.coreweave.com/wandb/models-indian-institute-of-technology-hyderabad/explora-bloodmnist/runs/k6ce3clr"
+    "wandb_run_id": "d2299qta",
+    "wandb_url": "https://forge.coreweave.com/wandb/models-indian-institute-of-technology-hyderabad/explora-bloodmnist/runs/d2299qta"
   }
 }
